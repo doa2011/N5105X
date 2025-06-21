@@ -1,0 +1,72 @@
+name: DSM 7.2 epyc7002 Kernel & Modules Build (with SSH Menuconfig)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget xz-utils build-essential bc libncurses-dev flex bison git
+
+      - name: Download DSM 7.2 epyc7002 Toolchain
+        run: |
+          wget -O toolchain.txz "https://global.synologydownload.com/download/ToolChain/toolchain/7.2-72806/AMD%20x86%20Linux%20Linux%205.10.55%20%28epyc7002%29/epyc7002-gcc1220_glibc236_x86_64-GPL.txz"
+          mkdir toolchain
+          tar -xJf toolchain.txz -C toolchain --strip-components=1
+          echo "Toolchain bin dir:"
+          find toolchain -type f -name "*gcc*" || true
+
+      - name: Download DSM 7.2 epyc7002 Kernel Source
+        run: |
+          wget -O linux-5.10.x.txz "https://global.synologydownload.com/download/ToolChain/Synology%20NAS%20GPL%20Source/7.2-72806/epyc7002/linux-5.10.x.txz"
+          mkdir linux
+          tar -xJf linux-5.10.x.txz -C linux --strip-components=1
+
+      - name: Prepare kernel config
+        run: |
+          cd linux
+          if [ -f ../config ]; then
+            cp ../config .config
+          else
+            # 如需可自定义 defconfig
+            cp arch/x86/configs/broadwellnk_defconfig .config || true
+          fi
+          yes "" | make oldconfig
+        working-directory: linux
+
+      - name: SSH menuconfig with tmate (Interactive)
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+
+      # 你通过SSH登录后，cd linux && make menuconfig，配置保存后 exit
+
+      - name: Build kernel and modules
+        run: |
+          export TOOLCHAIN_DIR=$GITHUB_WORKSPACE/toolchain
+          export PATH=$TOOLCHAIN_DIR/usr/local/x86_64-pc-linux-gnu/bin:$PATH
+          export CROSS_COMPILE=x86_64-pc-linux-gnu-
+          export ARCH=x86_64
+          cd linux
+          make -j$(nproc)
+          make modules
+          file arch/x86/boot/bzImage || true
+        working-directory: .
+
+      - name: Collect build artifacts
+        run: |
+          mkdir -p build-out
+          cp linux/arch/x86/boot/bzImage build-out/ || true
+          find linux -name "*.ko" -exec cp --parents {} build-out/ \; || true
+
+      - name: Upload kernel and modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsm-epyc7002-kernel-modules
+          path: build-out/
