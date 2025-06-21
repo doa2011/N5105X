@@ -28,18 +28,6 @@ jobs:
           mkdir linux
           tar -xJf linux-5.10.x.txz -C linux --strip-components=1
 
-      - name: Prepare kernel config
-        run: |
-          cd linux
-          if [ -f ../config ]; then
-            cp ../config .config
-          else
-            # 如需可自定义 defconfig
-            cp arch/x86/configs/broadwellnk_defconfig .config || true
-          fi
-          yes "" | make oldconfig
-        working-directory: linux
-
       - name: SSH menuconfig with tmate (Interactive)
         uses: mxschmitt/action-tmate@v3
         with:
